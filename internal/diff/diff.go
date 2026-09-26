@@ -2,6 +2,8 @@ package diff
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"os"
@@ -421,4 +423,61 @@ func generateUnifiedDiff(a, b []string, labelA, labelB string, contextLines int,
 	}
 
 	return sb.String()
+}
+
+// ExportResult holds the file paths and hash of an exported diff.
+type ExportResult struct {
+	DiffPath string
+	HashPath string
+	SHA256   string
+}
+
+// ComputeSHA256 returns the hex-encoded SHA-256 hash of the given data.
+func ComputeSHA256(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// ExportDiff exports diffContent to targetPath, writes a companion SHA-256 checksum
+// file in the same directory, and returns an ExportResult.
+// If targetPath is empty, it defaults to "exported_diff/diff.patch".
+// If targetPath is a directory or ends with a separator, "diff.patch" is written inside it.
+func ExportDiff(diffContent string, targetPath string) (*ExportResult, error) {
+	cleanPath := strings.TrimSpace(targetPath)
+	if cleanPath == "" {
+		cleanPath = filepath.Join("exported_diff", "diff.patch")
+	} else {
+		cleanPath = filepath.Clean(cleanPath)
+		// Check if cleanPath is an existing directory
+		if info, err := os.Stat(cleanPath); err == nil && info.IsDir() {
+			cleanPath = filepath.Join(cleanPath, "diff.patch")
+		} else if strings.HasSuffix(targetPath, "/") || strings.HasSuffix(targetPath, string(filepath.Separator)) {
+			// Explicit trailing slash implies directory
+			cleanPath = filepath.Join(cleanPath, "diff.patch")
+		}
+	}
+
+	dir := filepath.Dir(cleanPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create directory %q: %w", dir, err)
+	}
+
+	contentBytes := []byte(diffContent)
+	if err := os.WriteFile(cleanPath, contentBytes, 0644); err != nil {
+		return nil, fmt.Errorf("failed to write diff to %q: %w", cleanPath, err)
+	}
+
+	hashHex := ComputeSHA256(contentBytes)
+	hashPath := cleanPath + ".sha256"
+	hashContent := fmt.Sprintf("%s  %s\n", hashHex, filepath.Base(cleanPath))
+
+	if err := os.WriteFile(hashPath, []byte(hashContent), 0644); err != nil {
+		return nil, fmt.Errorf("failed to write hash file to %q: %w", hashPath, err)
+	}
+
+	return &ExportResult{
+		DiffPath: cleanPath,
+		HashPath: hashPath,
+		SHA256:   hashHex,
+	}, nil
 }

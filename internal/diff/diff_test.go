@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -206,5 +207,96 @@ func TestCompareDirectories_Filter(t *testing.T) {
 	}
 	if !strings.Contains(outInvalid, "matched.txt") || !strings.Contains(outInvalid, "ignored.txt") {
 		t.Errorf("expected both files to be included when filter is invalid")
+	}
+}
+
+func TestComputeSHA256(t *testing.T) {
+	data := []byte("hello world\n")
+	expected := "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447"
+	actual := ComputeSHA256(data)
+	if actual != expected {
+		t.Errorf("expected %s, got %s", expected, actual)
+	}
+}
+
+func TestExportDiff_CustomFilePath(t *testing.T) {
+	tmpDir := t.TempDir()
+	targetFile := filepath.Join(tmpDir, "output", "my_changes.patch")
+	sampleDiff := "--- a/test.txt\n+++ b/test.txt\n@@ -1 +1 @@\n-old\n+new\n"
+
+	res, err := ExportDiff(sampleDiff, targetFile)
+	if err != nil {
+		t.Fatalf("ExportDiff failed: %v", err)
+	}
+
+	if res.DiffPath != targetFile {
+		t.Errorf("expected diff path %q, got %q", targetFile, res.DiffPath)
+	}
+	expectedHashPath := targetFile + ".sha256"
+	if res.HashPath != expectedHashPath {
+		t.Errorf("expected hash path %q, got %q", expectedHashPath, res.HashPath)
+	}
+
+	// Verify diff file content
+	content, err := os.ReadFile(targetFile)
+	if err != nil {
+		t.Fatalf("failed to read exported diff: %v", err)
+	}
+	if string(content) != sampleDiff {
+		t.Errorf("exported diff content mismatch: got %q, expected %q", string(content), sampleDiff)
+	}
+
+	// Verify hash file content
+	hashContent, err := os.ReadFile(expectedHashPath)
+	if err != nil {
+		t.Fatalf("failed to read hash file: %v", err)
+	}
+	expectedHashFileContent := fmt.Sprintf("%s  my_changes.patch\n", res.SHA256)
+	if string(hashContent) != expectedHashFileContent {
+		t.Errorf("hash file mismatch: got %q, expected %q", string(hashContent), expectedHashFileContent)
+	}
+}
+
+func TestExportDiff_DirectoryPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	outDir := filepath.Join(tmpDir, "export_dir")
+	sampleDiff := "diff --git a/a b/b\n"
+
+	res, err := ExportDiff(sampleDiff, outDir+"/")
+	if err != nil {
+		t.Fatalf("ExportDiff with directory path failed: %v", err)
+	}
+
+	expectedDiffPath := filepath.Join(outDir, "diff.patch")
+	if res.DiffPath != expectedDiffPath {
+		t.Errorf("expected %q, got %q", expectedDiffPath, res.DiffPath)
+	}
+	if _, err := os.Stat(res.HashPath); err != nil {
+		t.Errorf("companion sha256 file does not exist: %v", err)
+	}
+}
+
+func TestExportDiff_DefaultPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	originalWd, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("failed to chdir to tempDir: %v", err)
+	}
+	defer os.Chdir(originalWd)
+
+	res, err := ExportDiff("sample diff", "")
+	if err != nil {
+		t.Fatalf("ExportDiff with default path failed: %v", err)
+	}
+
+	expectedDiffPath := filepath.Join("exported_diff", "diff.patch")
+	if res.DiffPath != expectedDiffPath {
+		t.Errorf("expected %q, got %q", expectedDiffPath, res.DiffPath)
+	}
+	if _, err := os.Stat(expectedDiffPath); err != nil {
+		t.Errorf("default diff file was not created: %v", err)
+	}
+	if _, err := os.Stat(expectedDiffPath + ".sha256"); err != nil {
+		t.Errorf("default hash file was not created: %v", err)
 	}
 }

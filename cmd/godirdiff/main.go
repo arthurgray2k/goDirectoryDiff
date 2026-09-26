@@ -14,6 +14,10 @@ func main() {
 	colorFlag := flag.Bool("color", false, "Enable colorized diff output")
 	filterFlag := flag.String("filter", "", "Filter diff by specific file or folder path (ignored if invalid)")
 	flag.StringVar(filterFlag, "f", "", "Filter diff by specific file or folder path (shorthand)")
+	exportFlag := flag.Bool("export", false, "Export diff to default directory (exported_diff/)")
+	flag.BoolVar(exportFlag, "e", false, "Export diff to default directory (shorthand)")
+	exportPathFlag := flag.String("export-path", "", "Path to export diff file or directory (default: exported_diff/)")
+	flag.StringVar(exportPathFlag, "o", "", "Path to export diff file or directory (shorthand)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: goDirDiff [options] <dir1> <dir2>\n\n")
@@ -43,6 +47,16 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(2)
+	}
+
+	shouldExport := *exportFlag || *exportPathFlag != ""
+	if shouldExport {
+		res, err := diff.ExportDiff(diffOutput, *exportPathFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Export error: %v\n", err)
+			os.Exit(2)
+		}
+		fmt.Fprintf(os.Stderr, "Diff exported to %s (SHA-256: %s)\n", res.DiffPath, res.SHA256)
 	}
 
 	if hasDiff {

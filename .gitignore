@@ -4,3 +4,8 @@ godirectorydiff
 *.exe
 *.test
 *.prof
+
+# Exported diffs
+exported_diff/*
+!exported_diff/.gitkeep
+

@@ -10,6 +10,9 @@ The project executable CLI binary is **`goDirDiff`**.
 - **File Lifecycle Detection**: Detects modified files, added files (`new file mode 100644`), and deleted files (`deleted file mode 100644`).
 - **Binary File Detection**: Automatically detects binary files and prints difference notices without polluting output.
 - **Configurable Context**: Custom context lines via `-c` / `--context`.
+- **Path Filtering**: Focus on specific files or subfolders via `-f` / `--filter` (gracefully ignored if invalid).
+- **Diff Export**: Export diff files via `-e` / `--export` or custom paths via `-o` / `--export-path`. Defaults to `exported_diff/` in the project directory.
+- **SHA-256 Integrity Verification**: Generates companion `<file>.sha256` checksum files in standard GNU coreutils format alongside exported diffs for cryptographic integrity checking.
 - **Colorized Output**: Optional ANSI terminal color highlighting (`--color`).
 - **Included Sample Demonstration**: Pre-packaged example directories (`examples/dir_v1` and `examples/dir_v2`) to demonstrate directory diffing immediately.
 
