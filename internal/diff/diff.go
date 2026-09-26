@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -480,4 +481,528 @@ func ExportDiff(diffContent string, targetPath string) (*ExportResult, error) {
 		HashPath: hashPath,
 		SHA256:   hashHex,
 	}, nil
+}
+
+// PatchDirection specifies the direction to apply a patch.
+type PatchDirection string
+
+const (
+	DirectionLR PatchDirection = "lr" // forward: left -> right (a -> b)
+	DirectionRL PatchDirection = "rl" // reverse: right -> left (b -> a)
+)
+
+// ParseDirection normalizes and parses a direction string.
+func ParseDirection(s string) (PatchDirection, error) {
+	norm := strings.ToLower(strings.TrimSpace(s))
+	switch norm {
+	case "lr", "l->r", "l→r", "l2r", "forward", "fwd", "left-to-right":
+		return DirectionLR, nil
+	case "rl", "r->l", "r→l", "r2l", "reverse", "rev", "right-to-left":
+		return DirectionRL, nil
+	default:
+		return "", fmt.Errorf("invalid direction %q: must be 'lr' (l->r) or 'rl' (r->l)", s)
+	}
+}
+
+// PatchLine represents a single line inside a unified diff hunk.
+type PatchLine struct {
+	Type rune   // ' ' (context), '-' (deletion), '+' (insertion)
+	Text string // content of the line without prefix
+}
+
+// Hunk represents a single unified diff hunk.
+type Hunk struct {
+	OldStart int
+	OldLen   int
+	NewStart int
+	NewLen   int
+	Lines    []PatchLine
+}
+
+// FilePatch represents all changes for a single file in a diff.
+type FilePatch struct {
+	OldPath   string
+	NewPath   string
+	IsNew     bool
+	IsDeleted bool
+	IsBinary  bool
+	Hunks     []Hunk
+}
+
+// ApplyResult contains the files modified, added, deleted, or skipped.
+type ApplyResult struct {
+	Modified []string
+	Added    []string
+	Deleted  []string
+	Skipped  []string
+}
+
+func parseHunkHeader(line string) (oldStart, oldLen, newStart, newLen int, err error) {
+	at1 := strings.Index(line, "@@")
+	if at1 == -1 {
+		return 0, 0, 0, 0, fmt.Errorf("invalid hunk header: missing opening @@")
+	}
+	rest := line[at1+2:]
+	at2 := strings.Index(rest, "@@")
+	if at2 == -1 {
+		return 0, 0, 0, 0, fmt.Errorf("invalid hunk header: missing closing @@")
+	}
+	header := strings.TrimSpace(rest[:at2])
+	parts := strings.Fields(header)
+	if len(parts) < 2 {
+		return 0, 0, 0, 0, fmt.Errorf("invalid hunk header format: %q", line)
+	}
+
+	pOld := strings.TrimPrefix(parts[0], "-")
+	if strings.Contains(pOld, ",") {
+		sub := strings.SplitN(pOld, ",", 2)
+		oldStart, err = strconv.Atoi(sub[0])
+		if err != nil {
+			return 0, 0, 0, 0, err
+		}
+		oldLen, err = strconv.Atoi(sub[1])
+		if err != nil {
+			return 0, 0, 0, 0, err
+		}
+	} else {
+		oldStart, err = strconv.Atoi(pOld)
+		if err != nil {
+			return 0, 0, 0, 0, err
+		}
+		oldLen = 1
+	}
+
+	pNew := strings.TrimPrefix(parts[1], "+")
+	if strings.Contains(pNew, ",") {
+		sub := strings.SplitN(pNew, ",", 2)
+		newStart, err = strconv.Atoi(sub[0])
+		if err != nil {
+			return 0, 0, 0, 0, err
+		}
+		newLen, err = strconv.Atoi(sub[1])
+		if err != nil {
+			return 0, 0, 0, 0, err
+		}
+	} else {
+		newStart, err = strconv.Atoi(pNew)
+		if err != nil {
+			return 0, 0, 0, 0, err
+		}
+		newLen = 1
+	}
+
+	return oldStart, oldLen, newStart, newLen, nil
+}
+
+func stripANSI(s string) string {
+	var b strings.Builder
+	inEsc := false
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\033' || s[i] == 0x1B {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if (s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z') {
+				inEsc = false
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+// ParsePatch parses git unified diff content into FilePatch structures.
+func ParsePatch(diffContent string) ([]FilePatch, error) {
+	cleanContent := stripANSI(diffContent)
+	rawLines := strings.Split(cleanContent, "\n")
+
+	var patches []FilePatch
+	var curPatch *FilePatch
+	var curHunk *Hunk
+
+	flushHunk := func() {
+		if curPatch != nil && curHunk != nil {
+			curPatch.Hunks = append(curPatch.Hunks, *curHunk)
+			curHunk = nil
+		}
+	}
+
+	flushPatch := func() {
+		flushHunk()
+		if curPatch != nil {
+			patches = append(patches, *curPatch)
+			curPatch = nil
+		}
+	}
+
+	for _, line := range rawLines {
+		if strings.HasPrefix(line, "diff --git ") {
+			flushPatch()
+			parts := strings.Fields(line)
+			var oldP, newP string
+			if len(parts) >= 4 {
+				oldP = strings.TrimPrefix(parts[2], "a/")
+				newP = strings.TrimPrefix(parts[3], "b/")
+			}
+			curPatch = &FilePatch{
+				OldPath: oldP,
+				NewPath: newP,
+			}
+			continue
+		}
+
+		if curPatch == nil {
+			if strings.HasPrefix(line, "--- ") {
+				curPatch = &FilePatch{}
+			} else {
+				continue
+			}
+		}
+
+		if line == "new file mode 100644" {
+			curPatch.IsNew = true
+			continue
+		}
+		if line == "deleted file mode 100644" {
+			curPatch.IsDeleted = true
+			continue
+		}
+		if strings.HasPrefix(line, "Binary files ") {
+			curPatch.IsBinary = true
+			continue
+		}
+		if strings.HasPrefix(line, "--- ") {
+			p := strings.TrimSpace(line[4:])
+			if p == "/dev/null" {
+				curPatch.IsNew = true
+				curPatch.OldPath = "/dev/null"
+			} else {
+				curPatch.OldPath = strings.TrimPrefix(p, "a/")
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "+++ ") {
+			p := strings.TrimSpace(line[4:])
+			if p == "/dev/null" {
+				curPatch.IsDeleted = true
+				curPatch.NewPath = "/dev/null"
+			} else {
+				curPatch.NewPath = strings.TrimPrefix(p, "b/")
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "@@ ") {
+			flushHunk()
+			oldS, oldL, newS, newL, err := parseHunkHeader(line)
+			if err != nil {
+				return nil, err
+			}
+			curHunk = &Hunk{
+				OldStart: oldS,
+				OldLen:   oldL,
+				NewStart: newS,
+				NewLen:   newL,
+			}
+			continue
+		}
+
+		if curHunk != nil {
+			if len(line) == 0 {
+				flushHunk()
+				continue
+			}
+			prefix := line[0]
+			switch prefix {
+			case ' ':
+				curHunk.Lines = append(curHunk.Lines, PatchLine{Type: ' ', Text: line[1:]})
+			case '-':
+				curHunk.Lines = append(curHunk.Lines, PatchLine{Type: '-', Text: line[1:]})
+			case '+':
+				curHunk.Lines = append(curHunk.Lines, PatchLine{Type: '+', Text: line[1:]})
+			case '\\':
+				continue
+			default:
+				flushHunk()
+			}
+		}
+	}
+
+	flushPatch()
+	return patches, nil
+}
+
+func applyHunks(origLines []string, hunks []Hunk, dir PatchDirection) ([]string, error) {
+	var result []string
+	srcIdx := 0
+
+	for _, hunk := range hunks {
+		targetStart := 0
+		if dir == DirectionLR {
+			targetStart = hunk.OldStart - 1
+		} else {
+			targetStart = hunk.NewStart - 1
+		}
+
+		if targetStart < 0 {
+			targetStart = 0
+		}
+
+		// Copy unmodified lines leading up to hunk
+		if srcIdx < targetStart {
+			if targetStart > len(origLines) {
+				targetStart = len(origLines)
+			}
+			result = append(result, origLines[srcIdx:targetStart]...)
+			srcIdx = targetStart
+		}
+
+		// Apply hunk lines
+		for _, pl := range hunk.Lines {
+			switch dir {
+			case DirectionLR:
+				switch pl.Type {
+				case ' ':
+					if srcIdx < len(origLines) {
+						result = append(result, origLines[srcIdx])
+						srcIdx++
+					} else {
+						result = append(result, pl.Text)
+					}
+				case '-':
+					if srcIdx < len(origLines) {
+						srcIdx++
+					}
+				case '+':
+					result = append(result, pl.Text)
+				}
+			case DirectionRL:
+				switch pl.Type {
+				case ' ':
+					if srcIdx < len(origLines) {
+						result = append(result, origLines[srcIdx])
+						srcIdx++
+					} else {
+						result = append(result, pl.Text)
+					}
+				case '+':
+					// In reverse, '+' was added in b, so we remove it
+					if srcIdx < len(origLines) {
+						srcIdx++
+					}
+				case '-':
+					// In reverse, '-' was deleted in b, so we restore it
+					result = append(result, pl.Text)
+				}
+			}
+		}
+	}
+
+	// Copy remaining lines after last hunk
+	if srcIdx < len(origLines) {
+		result = append(result, origLines[srcIdx:]...)
+	}
+
+	return result, nil
+}
+
+// ApplyPatch applies parsed file patches to targetDir in the specified direction.
+func ApplyPatch(patches []FilePatch, targetDir string, dir PatchDirection) (*ApplyResult, error) {
+	res := &ApplyResult{}
+
+	for _, fp := range patches {
+		if fp.IsBinary {
+			res.Skipped = append(res.Skipped, fmt.Sprintf("binary: %s", fp.NewPath))
+			continue
+		}
+
+		if dir == DirectionLR {
+			if fp.IsNew {
+				filePath := filepath.Join(targetDir, fp.NewPath)
+				if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+					return nil, fmt.Errorf("failed to create directory for %s: %w", fp.NewPath, err)
+				}
+				lines, err := applyHunks([]string{}, fp.Hunks, DirectionLR)
+				if err != nil {
+					return nil, fmt.Errorf("failed applying hunks to new file %s: %w", fp.NewPath, err)
+				}
+				var content string
+				if len(lines) > 0 {
+					content = strings.Join(lines, "\n") + "\n"
+				}
+				if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+					return nil, fmt.Errorf("failed to write new file %s: %w", filePath, err)
+				}
+				res.Added = append(res.Added, fp.NewPath)
+			} else if fp.IsDeleted {
+				filePath := filepath.Join(targetDir, fp.OldPath)
+				if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+					return nil, fmt.Errorf("failed to remove deleted file %s: %w", filePath, err)
+				}
+				res.Deleted = append(res.Deleted, fp.OldPath)
+			} else {
+				relPath := fp.NewPath
+				if relPath == "" {
+					relPath = fp.OldPath
+				}
+				filePath := filepath.Join(targetDir, relPath)
+				contentBytes, err := os.ReadFile(filePath)
+				if err != nil {
+					return nil, fmt.Errorf("failed to read file to patch %s: %w", filePath, err)
+				}
+				origLines := splitLines(string(contentBytes))
+				newLines, err := applyHunks(origLines, fp.Hunks, DirectionLR)
+				if err != nil {
+					return nil, fmt.Errorf("failed applying hunks to %s: %w", relPath, err)
+				}
+				var newContent string
+				if len(newLines) > 0 {
+					newContent = strings.Join(newLines, "\n") + "\n"
+				}
+				if err := os.WriteFile(filePath, []byte(newContent), 0644); err != nil {
+					return nil, fmt.Errorf("failed to write patched file %s: %w", filePath, err)
+				}
+				res.Modified = append(res.Modified, relPath)
+			}
+		} else { // DirectionRL (reverse)
+			if fp.IsNew {
+				filePath := filepath.Join(targetDir, fp.NewPath)
+				if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+					return nil, fmt.Errorf("failed to remove file %s in reverse patch: %w", filePath, err)
+				}
+				res.Deleted = append(res.Deleted, fp.NewPath)
+			} else if fp.IsDeleted {
+				filePath := filepath.Join(targetDir, fp.OldPath)
+				if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+					return nil, fmt.Errorf("failed to create directory for %s: %w", fp.OldPath, err)
+				}
+				lines, err := applyHunks([]string{}, fp.Hunks, DirectionRL)
+				if err != nil {
+					return nil, fmt.Errorf("failed applying hunks to restore file %s: %w", fp.OldPath, err)
+				}
+				var content string
+				if len(lines) > 0 {
+					content = strings.Join(lines, "\n") + "\n"
+				}
+				if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+					return nil, fmt.Errorf("failed to restore file %s: %w", filePath, err)
+				}
+				res.Added = append(res.Added, fp.OldPath)
+			} else {
+				relPath := fp.OldPath
+				if relPath == "" {
+					relPath = fp.NewPath
+				}
+				filePath := filepath.Join(targetDir, relPath)
+				contentBytes, err := os.ReadFile(filePath)
+				if err != nil {
+					return nil, fmt.Errorf("failed to read file to reverse patch %s: %w", filePath, err)
+				}
+				origLines := splitLines(string(contentBytes))
+				newLines, err := applyHunks(origLines, fp.Hunks, DirectionRL)
+				if err != nil {
+					return nil, fmt.Errorf("failed applying reverse hunks to %s: %w", relPath, err)
+				}
+				var newContent string
+				if len(newLines) > 0 {
+					newContent = strings.Join(newLines, "\n") + "\n"
+				}
+				if err := os.WriteFile(filePath, []byte(newContent), 0644); err != nil {
+					return nil, fmt.Errorf("failed to write reverse patched file %s: %w", filePath, err)
+				}
+				res.Modified = append(res.Modified, relPath)
+			}
+		}
+	}
+
+	return res, nil
+}
+
+// ApplyDiffFile reads a diff file from patchPath (verifying companion .sha256 if present)
+// and applies it to targetDir in the specified direction.
+func ApplyDiffFile(patchPath, targetDir string, dir PatchDirection) (*ApplyResult, error) {
+	data, err := os.ReadFile(patchPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read patch file %q: %w", patchPath, err)
+	}
+
+	hashPath := patchPath + ".sha256"
+	if hashData, err := os.ReadFile(hashPath); err == nil {
+		actualHash := ComputeSHA256(data)
+		hashFields := strings.Fields(string(hashData))
+		if len(hashFields) > 0 {
+			expectedHash := hashFields[0]
+			if !strings.EqualFold(actualHash, expectedHash) {
+				return nil, fmt.Errorf("checksum mismatch for patch %q: expected %s, got %s", patchPath, expectedHash, actualHash)
+			}
+		}
+	}
+
+	patches, err := ParsePatch(string(data))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse patch file %q: %w", patchPath, err)
+	}
+
+	return ApplyPatch(patches, targetDir, dir)
+}
+
+// ApplyBetweenDirectories compares dirA and dirB and synchronizes changes in direction dir.
+// If dir == DirectionLR, dirA is updated to match dirB.
+// If dir == DirectionRL, dirB is updated to match dirA.
+func ApplyBetweenDirectories(dirA, dirB string, opts Options, dir PatchDirection) (*ApplyResult, error) {
+	diffOutput, hasDiff, err := CompareDirectories(dirA, dirB, opts)
+	if err != nil {
+		return nil, err
+	}
+	if !hasDiff {
+		return &ApplyResult{}, nil
+	}
+
+	patches, err := ParsePatch(diffOutput)
+	if err != nil {
+		return nil, err
+	}
+
+	var targetDir string
+	if dir == DirectionLR {
+		targetDir = dirA
+	} else {
+		targetDir = dirB
+	}
+
+	res, err := ApplyPatch(patches, targetDir, dir)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, fp := range patches {
+		if fp.IsBinary {
+			var srcPath, dstPath string
+			relPath := fp.NewPath
+			if relPath == "" {
+				relPath = fp.OldPath
+			}
+			if dir == DirectionLR {
+				srcPath = filepath.Join(dirB, relPath)
+				dstPath = filepath.Join(dirA, relPath)
+			} else {
+				srcPath = filepath.Join(dirA, relPath)
+				dstPath = filepath.Join(dirB, relPath)
+			}
+
+			if srcData, err := os.ReadFile(srcPath); err == nil {
+				if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err == nil {
+					if err := os.WriteFile(dstPath, srcData, 0644); err == nil {
+						res.Modified = append(res.Modified, relPath)
+					}
+				}
+			} else if os.IsNotExist(err) {
+				os.Remove(dstPath)
+				res.Deleted = append(res.Deleted, relPath)
+			}
+		}
+	}
+
+	return res, nil
 }

@@ -12,6 +12,10 @@
 | `-f`, `--filter` | Filter diff by specific file or folder path (ignored if invalid) | `""` |
 | `-e`, `--export` | Export diff to default directory (`exported_diff/`) | `false` |
 | `-o`, `--export-path` | Specify custom export destination path or directory | `""` |
+| `-a`, `--apply` | Apply/patch diff to target directory or between directories | `false` |
+| `-p`, `--patch` | Path to patch file to apply | `exported_diff/diff.patch` |
+| `-d`, `--direction` | Patch direction: `lr` (l->r, forward) or `rl` (r->l, reverse) | `lr` |
+| `-t`, `--target` | Target directory to apply patch to | `""` |
 | `--color` | Enable colored terminal output | `false` |
 | `-h`, `--help` | Show command usage | |
 
@@ -68,4 +72,39 @@ The repository includes sample directories `examples/dir_v1` and `examples/dir_v
 ```bash
 ./goDirDiff examples/dir_v1 examples/dir_v2
 ```
+
+## Applying Diffs & Patching (Bidirectional)
+
+`goDirDiff` provides a built-in patch application engine supporting forward (`lr`, `l->r`) and reverse (`rl`, `r->l`) modifications.
+
+### 1. Applying a Patch File (Forward: `l->r`)
+Applies changes from a generated patch file to a target directory:
+
+```bash
+# Apply diff.patch to target directory (default direction is lr)
+./goDirDiff -a -p exported_diff/diff.patch -t /path/to/target_dir
+
+# Explicitly specifying forward direction
+./goDirDiff -a -d lr -p exported_diff/diff.patch -t /path/to/target_dir
+```
+*Note: If a companion `<patch>.sha256` checksum exists in the same directory, `goDirDiff` automatically verifies cryptographic integrity before applying.*
+
+### 2. Applying a Patch File in Reverse (`r->l`)
+Reverses changes from a patch file (restoring deleted files, reverting modified lines, and removing added files):
+
+```bash
+./goDirDiff -a -d rl -p exported_diff/diff.patch -t /path/to/target_dir
+```
+
+### 3. Direct Synchronization Between Two Directories
+Directly applies changes between two directory trees without saving an intermediate patch file:
+
+```bash
+# Updates dir_a to match dir_b (forward: lr)
+./goDirDiff -a examples/dir_v1 examples/dir_v2
+
+# Updates dir_b to match dir_a (reverse: rl)
+./goDirDiff -a -d rl examples/dir_v1 examples/dir_v2
+```
+
 

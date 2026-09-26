@@ -12,7 +12,9 @@ The project executable CLI binary is **`goDirDiff`**.
 - **Configurable Context**: Custom context lines via `-c` / `--context`.
 - **Path Filtering**: Focus on specific files or subfolders via `-f` / `--filter` (gracefully ignored if invalid).
 - **Diff Export**: Export diff files via `-e` / `--export` or custom paths via `-o` / `--export-path`. Defaults to `exported_diff/` in the project directory.
-- **SHA-256 Integrity Verification**: Generates companion `<file>.sha256` checksum files in standard GNU coreutils format alongside exported diffs for cryptographic integrity checking.
+- **SHA-256 Integrity Verification**: Generates companion `<file>.sha256` checksum files in standard GNU coreutils format alongside exported diffs for cryptographic integrity checking. Automatically validated when applying patches.
+- **Bidirectional Diff Patching**: Apply patches in forward (`lr`, `l->r`) or reverse (`rl`, `r->l`) direction (`-a` / `--apply`, `-d` / `--direction`, `-p` / `--patch`, `-t` / `--target`).
+- **Direct Directory Synchronization**: Seamlessly sync changes directly between two directory trees in either direction.
 - **Colorized Output**: Optional ANSI terminal color highlighting (`--color`).
 - **Included Sample Demonstration**: Pre-packaged example directories (`examples/dir_v1` and `examples/dir_v2`) to demonstrate directory diffing immediately.
 
