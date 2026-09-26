@@ -12,6 +12,8 @@ func main() {
 	contextFlag := flag.Int("context", 3, "Number of context lines to display")
 	flag.IntVar(contextFlag, "c", 3, "Number of context lines (shorthand)")
 	colorFlag := flag.Bool("color", false, "Enable colorized diff output")
+	filterFlag := flag.String("filter", "", "Filter diff by specific file or folder path (ignored if invalid)")
+	flag.StringVar(filterFlag, "f", "", "Filter diff by specific file or folder path (shorthand)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: goDirDiff [options] <dir1> <dir2>\n\n")
@@ -34,6 +36,7 @@ func main() {
 	opts := diff.Options{
 		ContextLines: *contextFlag,
 		Color:        *colorFlag,
+		Filter:       *filterFlag,
 	}
 
 	diffOutput, hasDiff, err := diff.CompareDirectories(dirA, dirB, opts)

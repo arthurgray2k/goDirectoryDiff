@@ -9,6 +9,7 @@
 | Flag | Description | Default |
 |---|---|---|
 | `-c`, `--context` | Number of context lines to display | `3` |
+| `-f`, `--filter` | Filter diff by specific file or folder path (ignored if invalid) | `""` |
 | `--color` | Enable colored terminal output | `false` |
 | `-h`, `--help` | Show command usage | |
 
@@ -17,52 +18,18 @@
 - `1`: Differences were found and printed to stdout.
 - `2`: Error occurred (e.g. invalid arguments, directory inaccessible).
 
+## Filtering Diffs by File or Folder
+You can scope the diff to a specific file or subfolder using `-f` / `--filter`:
+
+```bash
+./goDirDiff -f config.json examples/dir_v1 examples/dir_v2
+```
+*Note: If the provided filter path is invalid or matches nothing, the filter is automatically ignored and the full directory comparison is shown.*
+
 ## Demonstrating with Sample Files
 
 The repository includes sample directories `examples/dir_v1` and `examples/dir_v2` to demonstrate how folder diffs work:
 
 ```bash
 ./goDirDiff examples/dir_v1 examples/dir_v2
-```
-
-### Sample Output:
-```diff
-diff --git a/README.txt b/README.txt
---- a/README.txt
-+++ b/README.txt
-@@ -1,7 +1,8 @@
- Project Alpha
--Version 1.0.0
-+Version 2.0.0
- Author: Team Alpha
- 
- Features:
- - Initial release
--- Basic logging
-+- Enhanced structured logging
-+- High-performance directory diffing
-diff --git a/config.json b/config.json
---- a/config.json
-+++ b/config.json
-@@ -1,5 +1,5 @@
- {
--  "host": "localhost",
--  "port": 8080,
--  "debug": false
-+  "host": "0.0.0.0",
-+  "port": 9000,
-+  "debug": true
- }
-diff --git a/new_v2_service.txt b/new_v2_service.txt
-new file mode 100644
---- /dev/null
-+++ b/new_v2_service.txt
-@@ -1,0 +1,1 @@
-+This service is newly introduced in v2.
-diff --git a/old_deprecated_module.txt b/old_deprecated_module.txt
-deleted file mode 100644
---- a/old_deprecated_module.txt
-+++ /dev/null
-@@ -1,1 +1,0 @@
--This module is deprecated in v2.
 ```

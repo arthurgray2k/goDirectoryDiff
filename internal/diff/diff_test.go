@@ -168,3 +168,43 @@ func TestCompareDirectories_InvalidDirs(t *testing.T) {
 		t.Errorf("expected error when path is not a directory")
 	}
 }
+
+func TestCompareDirectories_Filter(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+
+	os.WriteFile(filepath.Join(dirA, "matched.txt"), []byte("v1\n"), 0644)
+	os.WriteFile(filepath.Join(dirB, "matched.txt"), []byte("v2\n"), 0644)
+
+	os.WriteFile(filepath.Join(dirA, "ignored.txt"), []byte("v1\n"), 0644)
+	os.WriteFile(filepath.Join(dirB, "ignored.txt"), []byte("v2\n"), 0644)
+
+	// Valid filter: should only show matched.txt
+	opts := Options{ContextLines: 3, Filter: "matched.txt"}
+	out, hasDiff, err := CompareDirectories(dirA, dirB, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasDiff {
+		t.Errorf("expected diff for matched.txt")
+	}
+	if !strings.Contains(out, "matched.txt") {
+		t.Errorf("expected output to contain matched.txt")
+	}
+	if strings.Contains(out, "ignored.txt") {
+		t.Errorf("expected output NOT to contain ignored.txt")
+	}
+
+	// Invalid filter: should fall back to showing all diffs
+	optsInvalid := Options{ContextLines: 3, Filter: "nonexistent/folder/path"}
+	outInvalid, hasDiffInvalid, err := CompareDirectories(dirA, dirB, optsInvalid)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasDiffInvalid {
+		t.Errorf("expected fallback diff")
+	}
+	if !strings.Contains(outInvalid, "matched.txt") || !strings.Contains(outInvalid, "ignored.txt") {
+		t.Errorf("expected both files to be included when filter is invalid")
+	}
+}

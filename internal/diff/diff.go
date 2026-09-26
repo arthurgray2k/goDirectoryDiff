@@ -14,6 +14,7 @@ import (
 type Options struct {
 	ContextLines int
 	Color        bool
+	Filter       string
 }
 
 // DefaultOptions returns standard comparison options.
@@ -21,6 +22,7 @@ func DefaultOptions() Options {
 	return Options{
 		ContextLines: 3,
 		Color:        false,
+		Filter:       "",
 	}
 }
 
@@ -54,6 +56,22 @@ func CompareDirectories(dirA, dirB string, opts Options) (string, bool, error) {
 	}
 
 	allRelPaths := unionKeys(filesA, filesB)
+
+	// Apply filter if specified and matches valid paths; ignore if invalid
+	filter := filepath.ToSlash(strings.TrimSpace(opts.Filter))
+	if filter != "" {
+		filterPrefix := strings.TrimSuffix(filter, "/") + "/"
+		var filtered []string
+		for _, relPath := range allRelPaths {
+			if relPath == filter || strings.HasPrefix(relPath, filterPrefix) {
+				filtered = append(filtered, relPath)
+			}
+		}
+		if len(filtered) > 0 {
+			allRelPaths = filtered
+		}
+		// If len(filtered) == 0, the filter path is invalid or has no matches, so ignore the filter as required
+	}
 
 	var sb strings.Builder
 	hasDiff := false
