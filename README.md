@@ -18,8 +18,7 @@ The project executable CLI binary is **`goDirDiff`**.
 | **Configurable Context** | `-c`, `--context` | Customizes the number of context lines surrounding each diff hunk (defaults to 3 lines). |
 | **Diff Export Mechanism** | `-e`, `--export`, `-o`, `--export-path` | Exports the unified diff to a destination file or folder (defaults to `exported_diff/diff.patch`). Creates parent folders automatically. |
 | **SHA-256 Checksums** | Companion `.sha256` | Automatically computes SHA-256 hashes and generates companion `.sha256` files in standard GNU `sha256sum` format for cryptographic integrity verification. |
-| **Bidirectional Patching** | `-a`, `--apply`, `-d`, `--direction` | Built-in patch engine supporting forward (`lr`, `l->r`) and reverse (`rl`, `r->l`) patch application from exported diff files. |
-| **Direct Tree Sync** | `-a <dir1> <dir2>` | Directly synchronizes differences between two directory trees in either direction without requiring an intermediate patch file. |
+| **Bidirectional Patching** | `-a`, `--apply`, `-d`, `--direction` | Built-in patch engine applying exported diff patches to a target directory with companion `.sha256` verification. Direction `-d rl` (default) brings in right (dir2/bottom) changes into target directory; `-d lr` brings in left (dir1/top) changes into target directory. |
 | **ANSI Color Output** | `--color` | Colorizes diff output in supported terminals (red for deletions, green for additions, cyan for headers). |
 | **Sample Demonstrations** | `examples/` | Includes pre-packaged example directories (`examples/dir_v1` and `examples/dir_v2`) and pre-generated sample folder diff files (`sample_folder_diff.diff`, `sample_folder_diff.patch`, `sample_folder_diff.txt`) showing Git-diff style output. |
 
@@ -43,12 +42,12 @@ flowchart TD
         LCS["LCS Diff Engine (computeDiff)"]
         Formatter["Unified Diff Formatter (generateUnifiedDiff)"]
         Exporter["Export & SHA-256 Engine (ExportDiff)"]
-        PatchEngine["Patch & Sync Engine (ApplyPatch / ApplyBetweenDirectories)"]
+        PatchEngine["Patch Engine (ApplyDiffFile / ApplyPatch)"]
     end
 
     subgraph Storage ["Filesystem & Outputs"]
-        DirA["Directory A"]
-        DirB["Directory B"]
+        DirA["Directory 1 (Left / Top)"]
+        DirB["Directory 2 (Right / Bottom)"]
         PatchFile["diff.patch & diff.patch.sha256"]
         TargetDir["Target Directory"]
     end
@@ -62,9 +61,9 @@ flowchart TD
     Formatter -->|"Export Flag"| Exporter
     Exporter --> PatchFile
 
-    Flags -->|"Apply Mode"| PatchEngine
+    Flags -->|"Apply Mode (-a -t target)"| PatchEngine
     PatchFile -->|"Read & Verify Hash"| PatchEngine
-    PatchEngine -->|"Bidirectional Sync (lr/rl)"| TargetDir
+    PatchEngine -->|"Apply Changes (-d rl / -d lr)"| TargetDir
 ```
 
 ---
@@ -96,20 +95,19 @@ flowchart TD
     HasDiff -- No --> ExitClean["Exit Code 0 (Identical)"]
 
     %% Patch Application Flow
-    CheckApply -- Yes --> ApplyType{"Direct Sync or Patch File?"}
-    ApplyType -- "Direct (2 Dirs)" --> SyncDirect["ApplyBetweenDirectories (dirA, dirB, direction)"]
-    ApplyType -- "Patch File" --> ReadPatch["Read Patch File (-p)"]
+    CheckApply -- Yes --> ValidateTarget{"Target Directory (-t) Provided?"}
+    ValidateTarget -- No --> ExitErr
+    ValidateTarget -- Yes --> ReadPatch["Read Patch File (-p or default exported_diff/diff.patch)"]
     ReadPatch --> CheckSum{"Companion .sha256 Exists?"}
     CheckSum -- Yes --> VerifyHash{"Verify SHA-256"}
     VerifyHash -- Mismatch --> ExitErr
     VerifyHash -- Valid --> ParseHunks["ParsePatch (Hunks & File Patches)"]
     CheckSum -- No --> ParseHunks
     ParseHunks --> ApplyDir{"Direction (-d)"}
-    ApplyDir -- "lr (Forward: a -> b)" --> PatchForward["Apply Forward Changes to Target (-t)"]
-    ApplyDir -- "rl (Reverse: b -> a)" --> PatchReverse["Apply Reverse Changes to Target (-t)"]
-    PatchForward --> ApplySuccess["Print Summary & Exit Code 0"]
-    PatchReverse --> ApplySuccess
-    SyncDirect --> ApplySuccess
+    ApplyDir -- "rl (default: right/dir2 changes)" --> PatchRight["Apply Right Changes to Target (-t)"]
+    ApplyDir -- "lr (left/dir1 changes)" --> PatchLeft["Apply Left Changes to Target (-t)"]
+    PatchRight --> ApplySuccess["Print Summary & Exit Code 0"]
+    PatchLeft --> ApplySuccess
 ```
 
 ---

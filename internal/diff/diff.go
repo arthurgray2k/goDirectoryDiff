@@ -487,20 +487,20 @@ func ExportDiff(diffContent string, targetPath string) (*ExportResult, error) {
 type PatchDirection string
 
 const (
-	DirectionLR PatchDirection = "lr" // forward: left -> right (a -> b)
-	DirectionRL PatchDirection = "rl" // reverse: right -> left (b -> a)
+	DirectionRL PatchDirection = "rl" // right: bring in right (dir2/bottom) changes to target directory
+	DirectionLR PatchDirection = "lr" // left: bring in left (dir1/top) changes to target directory
 )
 
 // ParseDirection normalizes and parses a direction string.
 func ParseDirection(s string) (PatchDirection, error) {
 	norm := strings.ToLower(strings.TrimSpace(s))
 	switch norm {
-	case "lr", "l->r", "l→r", "l2r", "forward", "fwd", "left-to-right":
-		return DirectionLR, nil
-	case "rl", "r->l", "r→l", "r2l", "reverse", "rev", "right-to-left":
+	case "rl", "r->l", "r→l", "r2l", "right", "r", "bottom":
 		return DirectionRL, nil
+	case "lr", "l->r", "l→r", "l2r", "left", "l", "top":
+		return DirectionLR, nil
 	default:
-		return "", fmt.Errorf("invalid direction %q: must be 'lr' (l->r) or 'rl' (r->l)", s)
+		return "", fmt.Errorf("invalid direction %q: must be 'rl' (right/dir2 changes) or 'lr' (left/dir1 changes)", s)
 	}
 }
 
@@ -739,9 +739,11 @@ func applyHunks(origLines []string, hunks []Hunk, dir PatchDirection) ([]string,
 
 	for _, hunk := range hunks {
 		targetStart := 0
-		if dir == DirectionLR {
+		if dir == DirectionRL {
+			// rl: bring in right (dir2) changes. Matches baseline at OldStart
 			targetStart = hunk.OldStart - 1
 		} else {
+			// lr: bring in left (dir1) changes. Matches baseline at NewStart
 			targetStart = hunk.NewStart - 1
 		}
 
@@ -761,7 +763,8 @@ func applyHunks(origLines []string, hunks []Hunk, dir PatchDirection) ([]string,
 		// Apply hunk lines
 		for _, pl := range hunk.Lines {
 			switch dir {
-			case DirectionLR:
+			case DirectionRL:
+				// Right (dir2) changes:
 				switch pl.Type {
 				case ' ':
 					if srcIdx < len(origLines) {
@@ -771,13 +774,16 @@ func applyHunks(origLines []string, hunks []Hunk, dir PatchDirection) ([]string,
 						result = append(result, pl.Text)
 					}
 				case '-':
+					// Remove left lines
 					if srcIdx < len(origLines) {
 						srcIdx++
 					}
 				case '+':
+					// Insert right lines
 					result = append(result, pl.Text)
 				}
-			case DirectionRL:
+			case DirectionLR:
+				// Left (dir1) changes:
 				switch pl.Type {
 				case ' ':
 					if srcIdx < len(origLines) {
@@ -787,12 +793,12 @@ func applyHunks(origLines []string, hunks []Hunk, dir PatchDirection) ([]string,
 						result = append(result, pl.Text)
 					}
 				case '+':
-					// In reverse, '+' was added in b, so we remove it
+					// Remove right lines
 					if srcIdx < len(origLines) {
 						srcIdx++
 					}
 				case '-':
-					// In reverse, '-' was deleted in b, so we restore it
+					// Restore left lines
 					result = append(result, pl.Text)
 				}
 			}
@@ -817,13 +823,14 @@ func ApplyPatch(patches []FilePatch, targetDir string, dir PatchDirection) (*App
 			continue
 		}
 
-		if dir == DirectionLR {
+		if dir == DirectionRL {
+			// Bring in right (dir2) changes
 			if fp.IsNew {
 				filePath := filepath.Join(targetDir, fp.NewPath)
 				if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
 					return nil, fmt.Errorf("failed to create directory for %s: %w", fp.NewPath, err)
 				}
-				lines, err := applyHunks([]string{}, fp.Hunks, DirectionLR)
+				lines, err := applyHunks([]string{}, fp.Hunks, DirectionRL)
 				if err != nil {
 					return nil, fmt.Errorf("failed applying hunks to new file %s: %w", fp.NewPath, err)
 				}
@@ -852,7 +859,7 @@ func ApplyPatch(patches []FilePatch, targetDir string, dir PatchDirection) (*App
 					return nil, fmt.Errorf("failed to read file to patch %s: %w", filePath, err)
 				}
 				origLines := splitLines(string(contentBytes))
-				newLines, err := applyHunks(origLines, fp.Hunks, DirectionLR)
+				newLines, err := applyHunks(origLines, fp.Hunks, DirectionRL)
 				if err != nil {
 					return nil, fmt.Errorf("failed applying hunks to %s: %w", relPath, err)
 				}
@@ -865,11 +872,11 @@ func ApplyPatch(patches []FilePatch, targetDir string, dir PatchDirection) (*App
 				}
 				res.Modified = append(res.Modified, relPath)
 			}
-		} else { // DirectionRL (reverse)
+		} else { // DirectionLR: bring in left (dir1) changes
 			if fp.IsNew {
 				filePath := filepath.Join(targetDir, fp.NewPath)
 				if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
-					return nil, fmt.Errorf("failed to remove file %s in reverse patch: %w", filePath, err)
+					return nil, fmt.Errorf("failed to remove file %s in left patch: %w", filePath, err)
 				}
 				res.Deleted = append(res.Deleted, fp.NewPath)
 			} else if fp.IsDeleted {
@@ -877,7 +884,7 @@ func ApplyPatch(patches []FilePatch, targetDir string, dir PatchDirection) (*App
 				if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
 					return nil, fmt.Errorf("failed to create directory for %s: %w", fp.OldPath, err)
 				}
-				lines, err := applyHunks([]string{}, fp.Hunks, DirectionRL)
+				lines, err := applyHunks([]string{}, fp.Hunks, DirectionLR)
 				if err != nil {
 					return nil, fmt.Errorf("failed applying hunks to restore file %s: %w", fp.OldPath, err)
 				}
@@ -900,7 +907,7 @@ func ApplyPatch(patches []FilePatch, targetDir string, dir PatchDirection) (*App
 					return nil, fmt.Errorf("failed to read file to reverse patch %s: %w", filePath, err)
 				}
 				origLines := splitLines(string(contentBytes))
-				newLines, err := applyHunks(origLines, fp.Hunks, DirectionRL)
+				newLines, err := applyHunks(origLines, fp.Hunks, DirectionLR)
 				if err != nil {
 					return nil, fmt.Errorf("failed applying reverse hunks to %s: %w", relPath, err)
 				}
@@ -965,7 +972,7 @@ func ApplyBetweenDirectories(dirA, dirB string, opts Options, dir PatchDirection
 	}
 
 	var targetDir string
-	if dir == DirectionLR {
+	if dir == DirectionRL {
 		targetDir = dirA
 	} else {
 		targetDir = dirB
@@ -983,7 +990,7 @@ func ApplyBetweenDirectories(dirA, dirB string, opts Options, dir PatchDirection
 			if relPath == "" {
 				relPath = fp.OldPath
 			}
-			if dir == DirectionLR {
+			if dir == DirectionRL {
 				srcPath = filepath.Join(dirB, relPath)
 				dstPath = filepath.Join(dirA, relPath)
 			} else {

@@ -302,7 +302,7 @@ func TestExportDiff_DefaultPath(t *testing.T) {
 }
 
 func TestParseDirection(t *testing.T) {
-	lrTests := []string{"lr", "LR", "l->r", "L->R", "l→r", "l2r", "forward", "fwd", "left-to-right"}
+	lrTests := []string{"lr", "LR", "l->r", "L->R", "l→r", "l2r", "left", "l", "top"}
 	for _, s := range lrTests {
 		dir, err := ParseDirection(s)
 		if err != nil || dir != DirectionLR {
@@ -310,7 +310,7 @@ func TestParseDirection(t *testing.T) {
 		}
 	}
 
-	rlTests := []string{"rl", "RL", "r->l", "R->L", "r→l", "r2l", "reverse", "rev", "right-to-left"}
+	rlTests := []string{"rl", "RL", "r->l", "R->L", "r→l", "r2l", "right", "r", "bottom"}
 	for _, s := range rlTests {
 		dir, err := ParseDirection(s)
 		if err != nil || dir != DirectionRL {
@@ -318,7 +318,7 @@ func TestParseDirection(t *testing.T) {
 		}
 	}
 
-	invalidTests := []string{"", "invalid", "up", "down", "random"}
+	invalidTests := []string{"", "invalid", "up", "down", "random", "forward", "reverse"}
 	for _, s := range invalidTests {
 		_, err := ParseDirection(s)
 		if err == nil {
@@ -398,31 +398,10 @@ func TestParsePatch_And_ApplyPatch_Bidirectional(t *testing.T) {
 		t.Fatalf("ParsePatch failed: %v", err)
 	}
 
-	// 1. Forward apply (DirectionLR): patch a copy of dirA -> should match dirB
-	targetLR := t.TempDir()
-	os.WriteFile(filepath.Join(targetLR, "modified.txt"), []byte("line 1\nline 2 old\nline 3\n"), 0644)
-	os.WriteFile(filepath.Join(targetLR, "deleted.txt"), []byte("delete me\n"), 0644)
-
-	resLR, err := ApplyPatch(patches, targetLR, DirectionLR)
-	if err != nil {
-		t.Fatalf("ApplyPatch LR failed: %v", err)
-	}
-	if len(resLR.Modified) != 1 || len(resLR.Added) != 1 || len(resLR.Deleted) != 1 {
-		t.Errorf("unexpected LR apply result: %+v", resLR)
-	}
-
-	diffAfterLR, hasDiffLR, err := CompareDirectories(targetLR, dirB, DefaultOptions())
-	if err != nil {
-		t.Fatalf("CompareDirectories after LR failed: %v", err)
-	}
-	if hasDiffLR {
-		t.Errorf("targetLR does not match dirB: %s", diffAfterLR)
-	}
-
-	// 2. Reverse apply (DirectionRL): patch a copy of dirB -> should match dirA
+	// 1. Right apply (DirectionRL): apply dir2/right changes to copy of dirA -> matches dirB
 	targetRL := t.TempDir()
-	os.WriteFile(filepath.Join(targetRL, "modified.txt"), []byte("line 1\nline 2 new\nline 3\n"), 0644)
-	os.WriteFile(filepath.Join(targetRL, "added.txt"), []byte("brand new file\n"), 0644)
+	os.WriteFile(filepath.Join(targetRL, "modified.txt"), []byte("line 1\nline 2 old\nline 3\n"), 0644)
+	os.WriteFile(filepath.Join(targetRL, "deleted.txt"), []byte("delete me\n"), 0644)
 
 	resRL, err := ApplyPatch(patches, targetRL, DirectionRL)
 	if err != nil {
@@ -432,12 +411,33 @@ func TestParsePatch_And_ApplyPatch_Bidirectional(t *testing.T) {
 		t.Errorf("unexpected RL apply result: %+v", resRL)
 	}
 
-	diffAfterRL, hasDiffRL, err := CompareDirectories(targetRL, dirA, DefaultOptions())
+	diffAfterRL, hasDiffRL, err := CompareDirectories(targetRL, dirB, DefaultOptions())
 	if err != nil {
 		t.Fatalf("CompareDirectories after RL failed: %v", err)
 	}
 	if hasDiffRL {
-		t.Errorf("targetRL does not match dirA: %s", diffAfterRL)
+		t.Errorf("targetRL does not match dirB: %s", diffAfterRL)
+	}
+
+	// 2. Left apply (DirectionLR): apply dir1/left changes to copy of dirB -> matches dirA
+	targetLR := t.TempDir()
+	os.WriteFile(filepath.Join(targetLR, "modified.txt"), []byte("line 1\nline 2 new\nline 3\n"), 0644)
+	os.WriteFile(filepath.Join(targetLR, "added.txt"), []byte("brand new file\n"), 0644)
+
+	resLR, err := ApplyPatch(patches, targetLR, DirectionLR)
+	if err != nil {
+		t.Fatalf("ApplyPatch LR failed: %v", err)
+	}
+	if len(resLR.Modified) != 1 || len(resLR.Added) != 1 || len(resLR.Deleted) != 1 {
+		t.Errorf("unexpected LR apply result: %+v", resLR)
+	}
+
+	diffAfterLR, hasDiffLR, err := CompareDirectories(targetLR, dirA, DefaultOptions())
+	if err != nil {
+		t.Fatalf("CompareDirectories after LR failed: %v", err)
+	}
+	if hasDiffLR {
+		t.Errorf("targetLR does not match dirA: %s", diffAfterLR)
 	}
 }
 
@@ -463,8 +463,8 @@ func TestApplyDiffFile_Success_And_ChecksumMismatch(t *testing.T) {
 	targetDir := t.TempDir()
 	os.WriteFile(filepath.Join(targetDir, "file.txt"), []byte("version 1\n"), 0644)
 
-	// Apply valid patch
-	applyRes, err := ApplyDiffFile(exportRes.DiffPath, targetDir, DirectionLR)
+	// Apply valid patch (DirectionRL: brings in dirB changes)
+	applyRes, err := ApplyDiffFile(exportRes.DiffPath, targetDir, DirectionRL)
 	if err != nil {
 		t.Fatalf("ApplyDiffFile failed: %v", err)
 	}
@@ -481,13 +481,13 @@ func TestApplyDiffFile_Success_And_ChecksumMismatch(t *testing.T) {
 	if err := os.WriteFile(exportRes.DiffPath, []byte("tampered content"), 0644); err != nil {
 		t.Fatalf("failed to tamper patch file: %v", err)
 	}
-	_, err = ApplyDiffFile(exportRes.DiffPath, targetDir, DirectionLR)
+	_, err = ApplyDiffFile(exportRes.DiffPath, targetDir, DirectionRL)
 	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 		t.Errorf("expected checksum mismatch error, got: %v", err)
 	}
 
 	// Non-existent patch file
-	_, err = ApplyDiffFile(filepath.Join(tmpDir, "missing.patch"), targetDir, DirectionLR)
+	_, err = ApplyDiffFile(filepath.Join(tmpDir, "missing.patch"), targetDir, DirectionRL)
 	if err == nil {
 		t.Errorf("expected error for non-existent patch file")
 	}
@@ -511,10 +511,10 @@ func TestApplyBetweenDirectories(t *testing.T) {
 	binExtra := []byte{0x00, 0xFF, 0xFE}
 	os.WriteFile(filepath.Join(dirB, "extra.bin"), binExtra, 0644)
 
-	// Synchronize dirA -> dirB using DirectionLR (updates dirA to match dirB)
-	res, err := ApplyBetweenDirectories(dirA, dirB, DefaultOptions(), DirectionLR)
+	// Bring dirB (right) changes into dirA using DirectionRL
+	res, err := ApplyBetweenDirectories(dirA, dirB, DefaultOptions(), DirectionRL)
 	if err != nil {
-		t.Fatalf("ApplyBetweenDirectories LR failed: %v", err)
+		t.Fatalf("ApplyBetweenDirectories RL failed: %v", err)
 	}
 	if len(res.Modified) == 0 {
 		t.Errorf("expected modified files, got: %+v", res)
@@ -529,7 +529,7 @@ func TestApplyBetweenDirectories(t *testing.T) {
 	}
 
 	// Test identical directories
-	resIdentical, err := ApplyBetweenDirectories(dirA, dirB, DefaultOptions(), DirectionLR)
+	resIdentical, err := ApplyBetweenDirectories(dirA, dirB, DefaultOptions(), DirectionRL)
 	if err != nil {
 		t.Fatalf("unexpected error for identical directories: %v", err)
 	}
@@ -537,18 +537,18 @@ func TestApplyBetweenDirectories(t *testing.T) {
 		t.Errorf("expected empty result for identical dirs, got: %+v", resIdentical)
 	}
 
-	// Test DirectionRL: update dirB to match a modified dirA
+	// Test DirectionLR: update dirB to match a modified dirA (bring dir1/left changes into dirB)
 	os.WriteFile(filepath.Join(dirA, "text.txt"), []byte("text changed again in A\n"), 0644)
-	resRL, err := ApplyBetweenDirectories(dirA, dirB, DefaultOptions(), DirectionRL)
+	resLR, err := ApplyBetweenDirectories(dirA, dirB, DefaultOptions(), DirectionLR)
 	if err != nil {
-		t.Fatalf("ApplyBetweenDirectories RL failed: %v", err)
+		t.Fatalf("ApplyBetweenDirectories LR failed: %v", err)
 	}
-	if len(resRL.Modified) == 0 {
-		t.Errorf("expected modified files in RL, got: %+v", resRL)
+	if len(resLR.Modified) == 0 {
+		t.Errorf("expected modified files in LR, got: %+v", resLR)
 	}
-	diffAfterRL, hasDiffRL, _ := CompareDirectories(dirA, dirB, DefaultOptions())
-	if hasDiffRL {
-		t.Errorf("expected dirA and dirB to be synchronized in RL, diff: %s", diffAfterRL)
+	diffAfterLR, hasDiffLR, _ := CompareDirectories(dirA, dirB, DefaultOptions())
+	if hasDiffLR {
+		t.Errorf("expected dirA and dirB to be synchronized in LR, diff: %s", diffAfterLR)
 	}
 }
 

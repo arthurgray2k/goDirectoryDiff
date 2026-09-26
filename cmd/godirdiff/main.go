@@ -20,20 +20,22 @@ func main() {
 	exportPathFlag := flag.String("export-path", "", "Path to export diff file or directory (default: exported_diff/)")
 	flag.StringVar(exportPathFlag, "o", "", "Path to export diff file or directory (shorthand)")
 
-	applyFlag := flag.Bool("apply", false, "Apply/patch diff to target directory or between directories")
+	applyFlag := flag.Bool("apply", false, "Apply/patch exported diff to target directory")
 	flag.BoolVar(applyFlag, "a", false, "Apply/patch diff (shorthand)")
 	patchPathFlag := flag.String("patch", "", "Path to patch file to apply (default: exported_diff/diff.patch)")
 	flag.StringVar(patchPathFlag, "p", "", "Path to patch file (shorthand)")
-	directionFlag := flag.String("direction", "lr", "Patch direction: 'lr' (l->r, forward) or 'rl' (r->l, reverse)")
-	flag.StringVar(directionFlag, "d", "lr", "Patch direction (shorthand)")
+	directionFlag := flag.String("direction", "rl", "Patch direction: 'rl' (right/dir2 changes) or 'lr' (left/dir1 changes)")
+	flag.StringVar(directionFlag, "d", "rl", "Patch direction (shorthand)")
 	targetFlag := flag.String("target", "", "Target directory to apply patch to")
 	flag.StringVar(targetFlag, "t", "", "Target directory (shorthand)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: goDirDiff [options] <dir1> <dir2>\n")
-		fmt.Fprintf(os.Stderr, "       goDirDiff -a [-d lr|rl] [-p <patch_file>] [-t <target_dir>]\n\n")
+		fmt.Fprintf(os.Stderr, "       goDirDiff -a [-d rl|lr] [-p <patch_file>] -t <target_dir>\n\n")
 		fmt.Fprintf(os.Stderr, "Recursively compares two directories and outputs changes in git unified diff format,\n")
-		fmt.Fprintf(os.Stderr, "or applies/patches changes bidirectionally (l->r or r->l).\n\n")
+		fmt.Fprintf(os.Stderr, "or applies an exported diff to a target directory:\n")
+		fmt.Fprintf(os.Stderr, "  -d rl: bring in right (bottom) changes that belong to dir2 into target directory (default)\n")
+		fmt.Fprintf(os.Stderr, "  -d lr: bring in left (top) changes that belong to dir1 into target directory\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 	}
@@ -50,7 +52,7 @@ func main() {
 	isApplyMode := *applyFlag || *patchPathFlag != "" || *targetFlag != ""
 
 	if isApplyMode {
-		handleApply(args, *patchPathFlag, *targetFlag, dirMode, *contextFlag, *filterFlag)
+		handleApply(args, *patchPathFlag, *targetFlag, dirMode)
 		return
 	}
 
@@ -93,29 +95,7 @@ func main() {
 	os.Exit(0)
 }
 
-func handleApply(args []string, patchFlag, targetFlag string, dir diff.PatchDirection, contextLines int, filter string) {
-	// Mode 1: Direct application between two directories
-	if len(args) == 2 && patchFlag == "" && targetFlag == "" {
-		infoA, errA := os.Stat(args[0])
-		infoB, errB := os.Stat(args[1])
-		if errA == nil && infoA.IsDir() && errB == nil && infoB.IsDir() {
-			opts := diff.Options{ContextLines: contextLines, Filter: filter}
-			res, err := diff.ApplyBetweenDirectories(args[0], args[1], opts, dir)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Apply error: %v\n", err)
-				os.Exit(2)
-			}
-			target := args[0]
-			if dir == diff.DirectionRL {
-				target = args[1]
-			}
-			fmt.Fprintf(os.Stderr, "Applied changes between %s and %s to %s (direction: %s)\n", args[0], args[1], target, dir)
-			printApplySummary(res)
-			os.Exit(0)
-		}
-	}
-
-	// Mode 2: Patch file to target directory
+func handleApply(args []string, patchFlag, targetFlag string, dir diff.PatchDirection) {
 	targetDir := targetFlag
 	patchFile := patchFlag
 
@@ -139,7 +119,7 @@ func handleApply(args []string, patchFlag, targetFlag string, dir diff.PatchDire
 	}
 
 	if targetDir == "" {
-		fmt.Fprintf(os.Stderr, "Error: target directory required for applying patch (use -t or specify target directory)\n")
+		fmt.Fprintf(os.Stderr, "Error: target directory required for applying patch (use -t <target_dir> or provide target directory)\n")
 		os.Exit(2)
 	}
 

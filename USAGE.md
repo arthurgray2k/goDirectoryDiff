@@ -10,11 +10,8 @@
 # 1. Compare two directories
 goDirDiff [options] <dir1> <dir2>
 
-# 2. Apply a patch file to a target directory
-goDirDiff -a [-d lr|rl] -p <patch_file> -t <target_dir>
-
-# 3. Synchronize two directories directly
-goDirDiff -a [-d lr|rl] <dir1> <dir2>
+# 2. Apply an exported diff patch file to a target directory
+goDirDiff -a [-d rl|lr] [-p <patch_file>] -t <target_dir>
 ```
 
 ---
@@ -23,10 +20,10 @@ goDirDiff -a [-d lr|rl] <dir1> <dir2>
 
 | Flag | Shorthand | Description | Default |
 |---|---|---|---|
-| `-apply` | `-a` | Enable patch application / synchronization mode | `false` |
+| `-apply` | `-a` | Enable patch application mode | `false` |
 | `-patch <file>` | `-p <file>` | Path to patch file to apply | `exported_diff/diff.patch` |
-| `-target <dir>` | `-t <dir>` | Target directory to apply patch to | `""` |
-| `-direction <mode>` | `-d <mode>` | Patch direction: `lr` (`l->r`, forward) or `rl` (`r->l`, reverse) | `lr` |
+| `-target <dir>` | `-t <dir>` | Target directory to apply patch to (required for apply) | `""` |
+| `-direction <mode>` | `-d <mode>` | Patch direction: `rl` (right/dir2 changes) or `lr` (left/dir1 changes) | `rl` |
 | `-export` | `-e` | Export diff to default directory (`exported_diff/`) | `false` |
 | `-export-path <path>`| `-o <path>` | Custom destination file or directory path for export | `""` |
 | `-filter <path>` | `-f <path>` | Scope diff to a specific file or subfolder | `""` |
@@ -66,15 +63,16 @@ flowchart TD
     DiffStatus -- "Yes" --> Exit1["Exit 1 (Diff Found)"]
     DiffStatus -- "No" --> Exit0["Exit 0 (Identical)"]
 
-    CheckApply -- "Yes (Patch Mode)" --> ModeCheck{"Direct Sync or Patch File?"}
-    ModeCheck -- "Direct: goDirDiff -a dir1 dir2" --> DirectSync["ApplyBetweenDirectories (dir1, dir2)"]
-    ModeCheck -- "Patch: goDirDiff -a -p ... -t ..." --> ValidatePatch["Check companion .sha256 integrity"]
-    ValidatePatch --> CheckDir{"Direction -d"}
-    CheckDir -- "lr (default)" --> ApplyLR["Apply changes forward (a -> b)"]
-    CheckDir -- "rl" --> ApplyRL["Apply changes in reverse (b -> a)"]
-    ApplyLR --> PatchDone["Print summary of modified/added/deleted files"]
-    ApplyRL --> PatchDone
-    DirectSync --> PatchDone
+    CheckApply -- "Yes (Patch Mode)" --> ValidateTarget{"Is Target Directory provided?"}
+    ValidateTarget -- "No" --> MissingTargetErr["Print Error & Exit 2"]
+    ValidateTarget -- "Yes" --> ValidatePatch["Check companion .sha256 integrity"]
+    ValidatePatch -- "Hash Mismatch" --> ChecksumErr["Print Checksum Error & Exit 2"]
+    ValidatePatch -- "Valid / No Hash" --> ParseHunks["ParsePatch (Hunks & File Patches)"]
+    ParseHunks --> CheckDir{"Direction -d"}
+    CheckDir -- "rl (default)" --> ApplyRL["Bring in right (dir2) changes to target directory"]
+    CheckDir -- "lr" --> ApplyLR["Bring in left (dir1) changes to target directory"]
+    ApplyRL --> PatchDone["Print summary of modified/added/deleted files"]
+    ApplyLR --> PatchDone
     PatchDone --> Exit0
 ```
 
@@ -170,41 +168,31 @@ sha256sum -c diff.patch.sha256
 
 ### 6. Bidirectional Patch Application
 
-#### Forward Application (`l->r`)
-Applies changes from `dir1` to `dir2` onto a target directory:
+Apply mode is strictly designed to apply an exported diff (`exported_diff/diff.patch`) and verify its companion `.sha256` checksum to a target directory provided by the user.
+
+#### Right / Dir2 Application (`-d rl`, Default)
+Brings in **right** (or bottom) changes that belong to `dir2` into the target directory:
 
 ```bash
-# Apply diff.patch to /path/to/target (defaults to direction: lr)
+# Apply diff.patch to /path/to/target (defaults to direction: rl)
 ./goDirDiff -a -p exported_diff/diff.patch -t /path/to/target
 
-# Explicit forward syntax
-./goDirDiff -a -d lr -p exported_diff/diff.patch -t /path/to/target
-```
-*Features automatic validation: If `diff.patch.sha256` is present alongside `diff.patch`, `goDirDiff` verifies integrity before modifying any target files.*
-
-#### Reverse Application (`r->l`)
-Reverses changes from `dir2` back to `dir1` (restores deleted files, reverts modified lines, and deletes files added in v2):
-
-```bash
+# Explicit right syntax
 ./goDirDiff -a -d rl -p exported_diff/diff.patch -t /path/to/target
 ```
+*Features automatic validation: If `diff.patch.sha256` is present alongside `diff.patch`, `goDirDiff` verifies cryptographic integrity before modifying any files in the target directory.*
 
----
-
-### 7. Direct Directory Synchronization
-Directly synchronize differences between two directory trees without creating an intermediate patch file:
+#### Left / Dir1 Application (`-d lr`)
+Brings in **left** (or top) changes that belong to `dir1` into the target directory:
 
 ```bash
-# Update dir_a to match dir_b in-place (forward: lr)
-./goDirDiff -a examples/dir_v1 examples/dir_v2
-
-# Update dir_b to match dir_a in-place (reverse: rl)
-./goDirDiff -a -d rl examples/dir_v1 examples/dir_v2
+# Bring dir1 changes into target
+./goDirDiff -a -d lr -p exported_diff/diff.patch -t /path/to/target
 ```
 
 ---
 
-### 8. Testing with Sample Directories & Pre-Generated Diff Files
+### 7. Testing with Sample Directories & Pre-Generated Diff Files
 The repository includes sample directory trees (`examples/dir_v1` and `examples/dir_v2`) and pre-generated Git-diff style reference files to illustrate how directory diffs look:
 
 - `examples/sample_folder_diff.diff`: Standard Git unified diff format output.
