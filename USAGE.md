@@ -1,110 +1,223 @@
 # USAGE: goDirDiff
 
-## Basic Usage
+`goDirDiff` is a versatile directory comparison, diff export, and bidirectional patch application tool.
+
+---
+
+## Command Syntax Overview
+
 ```bash
-./goDirDiff <directory_a> <directory_b>
+# 1. Compare two directories
+goDirDiff [options] <dir1> <dir2>
+
+# 2. Apply a patch file to a target directory
+goDirDiff -a [-d lr|rl] -p <patch_file> -t <target_dir>
+
+# 3. Synchronize two directories directly
+goDirDiff -a [-d lr|rl] <dir1> <dir2>
 ```
 
-## Options
-| Flag | Description | Default |
-|---|---|---|
-| `-c`, `--context` | Number of context lines to display | `3` |
-| `-f`, `--filter` | Filter diff by specific file or folder path (ignored if invalid) | `""` |
-| `-e`, `--export` | Export diff to default directory (`exported_diff/`) | `false` |
-| `-o`, `--export-path` | Specify custom export destination path or directory | `""` |
-| `-a`, `--apply` | Apply/patch diff to target directory or between directories | `false` |
-| `-p`, `--patch` | Path to patch file to apply | `exported_diff/diff.patch` |
-| `-d`, `--direction` | Patch direction: `lr` (l->r, forward) or `rl` (r->l, reverse) | `lr` |
-| `-t`, `--target` | Target directory to apply patch to | `""` |
-| `--color` | Enable colored terminal output | `false` |
-| `-h`, `--help` | Show command usage | |
+---
+
+## Options & Flags Reference
+
+| Flag | Shorthand | Description | Default |
+|---|---|---|---|
+| `-apply` | `-a` | Enable patch application / synchronization mode | `false` |
+| `-patch <file>` | `-p <file>` | Path to patch file to apply | `exported_diff/diff.patch` |
+| `-target <dir>` | `-t <dir>` | Target directory to apply patch to | `""` |
+| `-direction <mode>` | `-d <mode>` | Patch direction: `lr` (`l->r`, forward) or `rl` (`r->l`, reverse) | `lr` |
+| `-export` | `-e` | Export diff to default directory (`exported_diff/`) | `false` |
+| `-export-path <path>`| `-o <path>` | Custom destination file or directory path for export | `""` |
+| `-filter <path>` | `-f <path>` | Scope diff to a specific file or subfolder | `""` |
+| `-context <n>` | `-c <n>` | Number of context lines surrounding diff hunks | `3` |
+| `-color` | N/A | Enable ANSI colored terminal diff output | `false` |
+| `-help` | `-h` | Display command help and usage instructions | |
+
+---
 
 ## Exit Codes
-- `0`: Directories are identical (no differences).
-- `1`: Differences were found and printed to stdout.
-- `2`: Error occurred (e.g. invalid arguments, directory inaccessible, export error).
 
-## Exporting Diffs & SHA-256 Companion Files
+| Code | Status | Meaning |
+|---|---|---|
+| `0` | Success / Clean | In comparison mode: directories are identical. In patch mode: patch applied successfully. |
+| `1` | Differences Found | In comparison mode: differences were found and output to stdout. |
+| `2` | Error | Execution failed (e.g. invalid arguments, missing directories, checksum mismatch). |
 
-### Export to Default Directory (`exported_diff/`)
-Use `-e` or `--export` to save the unified diff to `exported_diff/diff.patch`:
+---
 
-```bash
-./goDirDiff -e dir_v1 dir_v2
+## CLI Decision Flowchart
+
+```mermaid
+flowchart TD
+    Start(["goDirDiff Invocation"]) --> CheckApply{"Is -a / -p / -t specified?"}
+
+    CheckApply -- "No (Comparison Mode)" --> CheckDirs{"Are 2 directories provided?"}
+    CheckDirs -- "No" --> UsageErr["Show Usage & Exit 2"]
+    CheckDirs -- "Yes" --> RunDiff["Recursively compare dir1 and dir2"]
+    RunDiff --> FilterOpt{"Is -f / --filter given?"}
+    FilterOpt -- "Yes" --> FilterScope["Filter differences to path"]
+    FilterOpt -- "No" --> ExportOpt
+    FilterScope --> ExportOpt{"Is -e or -o given?"}
+    ExportOpt -- "Yes" --> SavePatch["Save diff.patch & generate companion .sha256"]
+    ExportOpt -- "No" --> StdoutDiff["Print Git unified diff to stdout"]
+    SavePatch --> StdoutDiff
+    StdoutDiff --> DiffStatus{"Any differences?"}
+    DiffStatus -- "Yes" --> Exit1["Exit 1 (Diff Found)"]
+    DiffStatus -- "No" --> Exit0["Exit 0 (Identical)"]
+
+    CheckApply -- "Yes (Patch Mode)" --> ModeCheck{"Direct Sync or Patch File?"}
+    ModeCheck -- "Direct: goDirDiff -a dir1 dir2" --> DirectSync["ApplyBetweenDirectories (dir1, dir2)"]
+    ModeCheck -- "Patch: goDirDiff -a -p ... -t ..." --> ValidatePatch["Check companion .sha256 integrity"]
+    ValidatePatch --> CheckDir{"Direction -d"}
+    CheckDir -- "lr (default)" --> ApplyLR["Apply changes forward (a -> b)"]
+    CheckDir -- "rl" --> ApplyRL["Apply changes in reverse (b -> a)"]
+    ApplyLR --> PatchDone["Print summary of modified/added/deleted files"]
+    ApplyRL --> PatchDone
+    DirectSync --> PatchDone
+    PatchDone --> Exit0
 ```
 
-This generates:
-- `exported_diff/diff.patch` (diff output)
-- `exported_diff/diff.patch.sha256` (companion SHA-256 checksum)
+---
 
-### Export to Custom File or Directory Path
-Use `-o` or `--export-path` to save the diff to a specified location:
+## Feature Guides & Practical Examples
 
-```bash
-# Export to a custom file
-./goDirDiff -o output/release.patch dir_v1 dir_v2
-
-# Export to a directory (diff.patch and diff.patch.sha256 written inside)
-./goDirDiff -o /var/patches/ dir_v1 dir_v2
-```
-
-### Verifying SHA-256 Checksums
-The companion checksum file uses standard GNU `sha256sum` format:
-
-```bash
-cd exported_diff
-sha256sum -c diff.patch.sha256
-# diff.patch: OK
-```
-
-## Filtering Diffs by File or Folder
-You can scope the diff to a specific file or subfolder using `-f` / `--filter`:
-
-```bash
-./goDirDiff -f config.json examples/dir_v1 examples/dir_v2
-```
-*Note: If the provided filter path is invalid or matches nothing, the filter is automatically ignored and the full directory comparison is shown.*
-
-## Demonstrating with Sample Files
-
-The repository includes sample directories `examples/dir_v1` and `examples/dir_v2` to demonstrate how folder diffs work:
+### 1. Basic Directory Comparison
+Compare two folders and display standard Git unified diffs on stdout:
 
 ```bash
 ./goDirDiff examples/dir_v1 examples/dir_v2
 ```
-
-## Applying Diffs & Patching (Bidirectional)
-
-`goDirDiff` provides a built-in patch application engine supporting forward (`lr`, `l->r`) and reverse (`rl`, `r->l`) modifications.
-
-### 1. Applying a Patch File (Forward: `l->r`)
-Applies changes from a generated patch file to a target directory:
-
-```bash
-# Apply diff.patch to target directory (default direction is lr)
-./goDirDiff -a -p exported_diff/diff.patch -t /path/to/target_dir
-
-# Explicitly specifying forward direction
-./goDirDiff -a -d lr -p exported_diff/diff.patch -t /path/to/target_dir
-```
-*Note: If a companion `<patch>.sha256` checksum exists in the same directory, `goDirDiff` automatically verifies cryptographic integrity before applying.*
-
-### 2. Applying a Patch File in Reverse (`r->l`)
-Reverses changes from a patch file (restoring deleted files, reverting modified lines, and removing added files):
-
-```bash
-./goDirDiff -a -d rl -p exported_diff/diff.patch -t /path/to/target_dir
+*Output snippet:*
+```diff
+diff --git a/README.txt b/README.txt
+--- a/README.txt
++++ b/README.txt
+@@ -1,7 +1,8 @@
+ Project Alpha
+-Version 1.0.0
++Version 2.0.0
+ Author: Team Alpha
+...
 ```
 
-### 3. Direct Synchronization Between Two Directories
-Directly applies changes between two directory trees without saving an intermediate patch file:
+---
+
+### 2. Colorized Terminal Output
+Highlight additions in green and deletions in red for enhanced terminal readability:
 
 ```bash
-# Updates dir_a to match dir_b (forward: lr)
+./goDirDiff --color examples/dir_v1 examples/dir_v2
+```
+
+---
+
+### 3. Custom Context Lines
+Adjust the amount of surrounding context lines displayed around changed hunks:
+
+```bash
+# 5 lines of context
+./goDirDiff -c 5 examples/dir_v1 examples/dir_v2
+
+# 1 line of context (compact view)
+./goDirDiff -c 1 examples/dir_v1 examples/dir_v2
+```
+
+---
+
+### 4. Scoped Filtering (`-f` / `--filter`)
+Focus only on changes within a specific file or subfolder:
+
+```bash
+# Compare only config.json
+./goDirDiff -f config.json examples/dir_v1 examples/dir_v2
+
+# Compare only a subfolder
+./goDirDiff -f services/api examples/dir_v1 examples/dir_v2
+```
+*Note: If the filtered path does not exist in the comparison, `goDirDiff` gracefully falls back to showing all changes.*
+
+---
+
+### 5. Exporting Diffs & Generating SHA-256 Checksums
+
+#### Export to Default Location (`exported_diff/`)
+```bash
+./goDirDiff -e examples/dir_v1 examples/dir_v2
+```
+Generates:
+- `exported_diff/diff.patch`: Git-compatible unified diff file.
+- `exported_diff/diff.patch.sha256`: Companion cryptographic checksum file in standard GNU format.
+
+#### Export to a Custom File or Directory
+```bash
+# Export to a custom patch file
+./goDirDiff -o builds/release_v2.patch examples/dir_v1 examples/dir_v2
+
+# Export to a specific directory (writes diff.patch and diff.patch.sha256 inside)
+./goDirDiff -o /tmp/patches/ examples/dir_v1 examples/dir_v2
+```
+
+#### Verifying Checksums
+The companion checksum file can be verified using standard system utilities:
+```bash
+cd exported_diff
+sha256sum -c diff.patch.sha256
+# Output: diff.patch: OK
+```
+
+---
+
+### 6. Bidirectional Patch Application
+
+#### Forward Application (`l->r`)
+Applies changes from `dir1` to `dir2` onto a target directory:
+
+```bash
+# Apply diff.patch to /path/to/target (defaults to direction: lr)
+./goDirDiff -a -p exported_diff/diff.patch -t /path/to/target
+
+# Explicit forward syntax
+./goDirDiff -a -d lr -p exported_diff/diff.patch -t /path/to/target
+```
+*Features automatic validation: If `diff.patch.sha256` is present alongside `diff.patch`, `goDirDiff` verifies integrity before modifying any target files.*
+
+#### Reverse Application (`r->l`)
+Reverses changes from `dir2` back to `dir1` (restores deleted files, reverts modified lines, and deletes files added in v2):
+
+```bash
+./goDirDiff -a -d rl -p exported_diff/diff.patch -t /path/to/target
+```
+
+---
+
+### 7. Direct Directory Synchronization
+Directly synchronize differences between two directory trees without creating an intermediate patch file:
+
+```bash
+# Update dir_a to match dir_b in-place (forward: lr)
 ./goDirDiff -a examples/dir_v1 examples/dir_v2
 
-# Updates dir_b to match dir_a (reverse: rl)
+# Update dir_b to match dir_a in-place (reverse: rl)
 ./goDirDiff -a -d rl examples/dir_v1 examples/dir_v2
 ```
 
+---
 
+### 8. Testing with Sample Directories
+The project includes sample directories (`examples/dir_v1` and `examples/dir_v2`) designed for end-to-end testing:
+
+```bash
+# 1. Compare sample directories
+./goDirDiff examples/dir_v1 examples/dir_v2
+
+# 2. Export patch
+./goDirDiff -e examples/dir_v1 examples/dir_v2
+
+# 3. Test patch in temporary folder
+TEMP_DIR=$(mktemp -d)
+cp -r examples/dir_v1/* "$TEMP_DIR"
+./goDirDiff -a -p exported_diff/diff.patch -t "$TEMP_DIR"
+./goDirDiff "$TEMP_DIR" examples/dir_v2 # returns 0 (identical)
+rm -rf "$TEMP_DIR"
+```
