@@ -204,20 +204,32 @@ Directly synchronize differences between two directory trees without creating an
 
 ---
 
-### 8. Testing with Sample Directories
-The project includes sample directories (`examples/dir_v1` and `examples/dir_v2`) designed for end-to-end testing:
+### 8. Testing with Sample Directories & Pre-Generated Diff Files
+The repository includes sample directory trees (`examples/dir_v1` and `examples/dir_v2`) and pre-generated Git-diff style reference files to illustrate how directory diffs look:
 
+- `examples/sample_folder_diff.diff`: Standard Git unified diff format output.
+- `examples/sample_folder_diff.patch`: Patch file ready for application.
+- `examples/sample_folder_diff.txt`: Demonstration text file format.
+
+#### Viewing the Sample Diff:
 ```bash
-# 1. Compare sample directories
+cat examples/sample_folder_diff.diff
+# or
+cat examples/sample_folder_diff.txt
+```
+
+#### Running & Testing with the Sample Directories:
+```bash
+# 1. Compare sample directories (emits diff to stdout)
 ./goDirDiff examples/dir_v1 examples/dir_v2
 
-# 2. Export patch
+# 2. Export patch with companion checksum
 ./goDirDiff -e examples/dir_v1 examples/dir_v2
 
-# 3. Test patch in temporary folder
+# 3. Test patch application in temporary directory
 TEMP_DIR=$(mktemp -d)
 cp -r examples/dir_v1/* "$TEMP_DIR"
-./goDirDiff -a -p exported_diff/diff.patch -t "$TEMP_DIR"
+./goDirDiff -a -p examples/sample_folder_diff.patch -t "$TEMP_DIR"
 ./goDirDiff "$TEMP_DIR" examples/dir_v2 # returns 0 (identical)
 rm -rf "$TEMP_DIR"
 ```

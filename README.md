@@ -21,7 +21,7 @@ The project executable CLI binary is **`goDirDiff`**.
 | **Bidirectional Patching** | `-a`, `--apply`, `-d`, `--direction` | Built-in patch engine supporting forward (`lr`, `l->r`) and reverse (`rl`, `r->l`) patch application from exported diff files. |
 | **Direct Tree Sync** | `-a <dir1> <dir2>` | Directly synchronizes differences between two directory trees in either direction without requiring an intermediate patch file. |
 | **ANSI Color Output** | `--color` | Colorizes diff output in supported terminals (red for deletions, green for additions, cyan for headers). |
-| **Sample Demonstrations** | `examples/` | Includes pre-packaged example directories (`examples/dir_v1` and `examples/dir_v2`) for instant testing and verification. |
+| **Sample Demonstrations** | `examples/` | Includes pre-packaged example directories (`examples/dir_v1` and `examples/dir_v2`) and pre-generated sample folder diff files (`sample_folder_diff.diff`, `sample_folder_diff.patch`, `sample_folder_diff.txt`) showing Git-diff style output. |
 
 ---
 
@@ -126,9 +126,12 @@ goDirectoryDiff/
 │       ├── diff.go           # Core engine: traversal, LCS diff, export, patch
 │       └── diff_test.go      # Comprehensive unit tests (87.1% coverage)
 ├── examples/
-│   ├── dir_v1/               # Baseline sample directory
-│   └── dir_v2/               # Modified sample directory (additions/deletions/changes)
-├── exported_diff/            # Default directory for exported patches & checksums
+│   ├── dir_v1/                   # Baseline sample directory
+│   ├── dir_v2/                   # Modified sample directory (additions/deletions/changes)
+│   ├── sample_folder_diff.diff   # Pre-generated sample Git unified diff
+│   ├── sample_folder_diff.patch  # Git unified patch format
+│   └── sample_folder_diff.txt    # Demonstration text file showing folder diff format
+├── exported_diff/                # Default directory for exported patches & checksums
 ├── go.mod                    # Module definition (Go 1.26)
 ├── README.md                 # Project documentation & architecture
 └── USAGE.md                  # Comprehensive command line user guide
