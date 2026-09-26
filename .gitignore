@@ -1,0 +1,5 @@
+# Binaries
+godirectorydiff
+*.exe
+*.test
+*.prof
