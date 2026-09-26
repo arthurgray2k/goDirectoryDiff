@@ -2,24 +2,30 @@
 
 `goDirectoryDiff` is a high-performance command-line tool written in Go that recursively compares two directories and outputs changes in standard Git unified diff format.
 
+The project executable CLI binary is **`goDirDiff`**.
+
 ## Features
 - **Pure Go Standard Library**: Zero external dependencies.
-- **Git Unified Diff Format**: Emits `diff --git a/... b/...`, `--- a/...`, `+++ b/...`, and hunk markers (`@@ -start,len +start,len @@`).
-- **File Lifecycle Awareness**: Detects modified files, added files (`new file mode 100644`), and deleted files (`deleted file mode 100644`).
+- **Git Unified Diff Format**: Emits standard Git patch format (`diff --git a/... b/...`, `--- a/...`, `+++ b/...`, `@@ -start,len +start,len @@`).
+- **File Lifecycle Detection**: Detects modified files, added files (`new file mode 100644`), and deleted files (`deleted file mode 100644`).
 - **Binary File Detection**: Automatically detects binary files and prints difference notices without polluting output.
 - **Configurable Context**: Custom context lines via `-c` / `--context`.
 - **Colorized Output**: Optional ANSI terminal color highlighting (`--color`).
+- **Included Sample Demonstration**: Pre-packaged example directories (`examples/dir_v1` and `examples/dir_v2`) to demonstrate directory diffing immediately.
 
 ## Architecture
 ```
 goDirectoryDiff/
 ├── cmd/
-│   └── godirectorydiff/
-│       └── main.go           # CLI entry point, argument parsing, exit codes
+│   └── godirdiff/
+│       └── main.go           # CLI entry point, executable name: goDirDiff
 ├── internal/
 │   └── diff/
 │       ├── diff.go           # Recursive directory traversal & diff generator
 │       └── diff_test.go      # Comprehensive test suite (>85% coverage)
+├── examples/
+│   ├── dir_v1/               # Sample directory version 1
+│   └── dir_v2/               # Sample directory version 2
 ├── go.mod                    # Module definition (Go 1.26)
 ├── README.md
 └── USAGE.md
@@ -27,7 +33,7 @@ goDirectoryDiff/
 
 ## Building
 ```bash
-go build ./cmd/godirectorydiff
+go build -o goDirDiff ./cmd/godirdiff
 ```
 
 ## Testing

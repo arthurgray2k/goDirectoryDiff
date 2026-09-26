@@ -1,8 +1,8 @@
-# USAGE: goDirectoryDiff
+# USAGE: goDirDiff
 
 ## Basic Usage
 ```bash
-godirectorydiff <directory_a> <directory_b>
+./goDirDiff <directory_a> <directory_b>
 ```
 
 ## Options
@@ -17,24 +17,52 @@ godirectorydiff <directory_a> <directory_b>
 - `1`: Differences were found and printed to stdout.
 - `2`: Error occurred (e.g. invalid arguments, directory inaccessible).
 
-## Examples
+## Demonstrating with Sample Files
 
-### 1. Compare two directories
+The repository includes sample directories `examples/dir_v1` and `examples/dir_v2` to demonstrate how folder diffs work:
+
 ```bash
-./godirectorydiff /path/to/project_v1 /path/to/project_v2
+./goDirDiff examples/dir_v1 examples/dir_v2
 ```
 
-### 2. Compare with color highlighting
-```bash
-./godirectorydiff --color ./dirA ./dirB
-```
-
-### 3. Compare with custom context lines
-```bash
-./godirectorydiff -c 5 ./dirA ./dirB
-```
-
-### 4. Redirecting diff to a patch file
-```bash
-./godirectorydiff ./dirA ./dirB > my_changes.patch
+### Sample Output:
+```diff
+diff --git a/README.txt b/README.txt
+--- a/README.txt
++++ b/README.txt
+@@ -1,7 +1,8 @@
+ Project Alpha
+-Version 1.0.0
++Version 2.0.0
+ Author: Team Alpha
+ 
+ Features:
+ - Initial release
+-- Basic logging
++- Enhanced structured logging
++- High-performance directory diffing
+diff --git a/config.json b/config.json
+--- a/config.json
++++ b/config.json
+@@ -1,5 +1,5 @@
+ {
+-  "host": "localhost",
+-  "port": 8080,
+-  "debug": false
++  "host": "0.0.0.0",
++  "port": 9000,
++  "debug": true
+ }
+diff --git a/new_v2_service.txt b/new_v2_service.txt
+new file mode 100644
+--- /dev/null
++++ b/new_v2_service.txt
+@@ -1,0 +1,1 @@
++This service is newly introduced in v2.
+diff --git a/old_deprecated_module.txt b/old_deprecated_module.txt
+deleted file mode 100644
+--- a/old_deprecated_module.txt
++++ /dev/null
+@@ -1,1 +1,0 @@
+-This module is deprecated in v2.
 ```
